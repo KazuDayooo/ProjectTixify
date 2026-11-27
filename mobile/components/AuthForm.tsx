@@ -24,8 +24,10 @@ export default function AuthForm({ mode }: AuthFormProps) {
   const theme = Colors[colorScheme];
   const router = useRouter();
   const isRegister = mode === 'register';
-  const [name, setName] = useState('');
+  const [nickname, setNickname] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [loginIdentifier, setLoginIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -47,13 +49,20 @@ export default function AuthForm({ mode }: AuthFormProps) {
   const submit = async () => {
     setError('');
     setNotice('');
-    const normalizedEmail = email.trim().toLowerCase();
-    if (isRegister && !name.trim()) {
-      setError('Nama lengkap wajib diisi.');
+    if (isRegister && nickname.trim().length < 2) {
+      setError('Nickname minimal 2 karakter.');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      setError('Masukkan alamat email yang valid.');
+    if (isRegister && !/^\+?[0-9\s()-]{8,20}$/.test(phone.trim())) {
+      setError('Masukkan nomor telepon yang valid.');
+      return;
+    }
+    if (!isRegister && !loginIdentifier.trim()) {
+      setError('Masukkan email atau nomor telepon.');
+      return;
+    }
+    if (isRegister && !email.trim() && !phone.trim()) {
+      setError('Isi email atau nomor telepon sebagai ID login. Boleh menggunakan data dummy.');
       return;
     }
     if (password.length < 8) {
@@ -68,14 +77,14 @@ export default function AuthForm({ mode }: AuthFormProps) {
     setBusy(true);
     try {
       if (isRegister) {
-        const response = await mobileApi.register({ name: name.trim(), email: normalizedEmail, password });
+        const response = await mobileApi.register({ nickname: nickname.trim(), phone: phone.trim(), email: email.trim(), password });
         if (response.session && response.user) {
           await completeAuth(response);
         } else {
-          setNotice(response.message || 'Akun berhasil dibuat. Silakan masuk setelah konfirmasi email.');
+          setNotice(response.message || 'Akun berhasil dibuat. Silakan masuk dengan email atau nomor telepon.');
         }
       } else {
-        const response = await mobileApi.login({ email: normalizedEmail, password });
+        const response = await mobileApi.login({ identifier: loginIdentifier.trim(), password });
         await completeAuth(response);
       }
     } catch (err) {
@@ -98,7 +107,7 @@ export default function AuthForm({ mode }: AuthFormProps) {
     <KeyboardAvoidingView style={[styles.page, { backgroundColor: theme.background }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.topBar}>
-          <TouchableOpacity style={[styles.backButton, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.replace('/(tabs)')} accessibilityLabel="Kembali ke jelajah event">
+          <TouchableOpacity style={[styles.backButton, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => router.replace(isRegister ? '/login' : '/register')} accessibilityLabel={isRegister ? 'Buka halaman masuk' : 'Buka halaman daftar'}>
             <Ionicons name="arrow-back" size={19} color={theme.text} />
           </TouchableOpacity>
           <Text style={[styles.topLabel, { color: theme.muted }]}>TIXIFY • TIKET EVENT</Text>
@@ -110,26 +119,48 @@ export default function AuthForm({ mode }: AuthFormProps) {
           <Text style={[styles.eyebrow, { color: theme.primary }]}>{isRegister ? 'AKUN TIXIFY' : 'SELAMAT DATANG KEMBALI'}</Text>
           <Text style={[styles.title, { color: theme.text }]}>{isRegister ? 'Mulai pengalamanmu' : 'Masuk ke akunmu'}</Text>
           <Text style={[styles.subtitle, { color: theme.muted }]}>
-            {isRegister ? 'Daftar untuk menyimpan pengalaman event dan tiketmu.' : 'Masuk untuk melanjutkan pengalaman event-mu.'}
+            {isRegister ? 'Email dan nomor telepon boleh berupa data dummy. Isi minimal salah satunya untuk login.' : 'Masuk menggunakan email atau nomor telepon yang didaftarkan.'}
           </Text>
 
           {isRegister && (
             <View style={styles.fieldGroup}>
-              <Text style={[styles.label, { color: theme.text }]}>Nama lengkap</Text>
+              <Text style={[styles.label, { color: theme.text }]}>Nickname</Text>
               <View style={[styles.inputWrap, { borderColor: theme.border, backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc' }]}>
                 <Ionicons name="person-outline" size={18} color={theme.muted} />
-                <TextInput style={[inputStyle, styles.inputInset]} value={name} onChangeText={setName} placeholder="Nama kamu" placeholderTextColor={theme.muted} autoCapitalize="words" autoComplete="name" maxLength={80} returnKeyType="next" />
+                <TextInput style={[inputStyle, styles.inputInset]} value={nickname} onChangeText={setNickname} placeholder="Nama panggilan kamu" placeholderTextColor={theme.muted} autoCapitalize="words" autoComplete="nickname" maxLength={40} returnKeyType="next" />
               </View>
             </View>
           )}
 
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.label, { color: theme.text }]}>Email</Text>
-            <View style={[styles.inputWrap, { borderColor: theme.border, backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc' }]}>
-              <Ionicons name="mail-outline" size={18} color={theme.muted} />
-              <TextInput style={[inputStyle, styles.inputInset]} value={email} onChangeText={setEmail} placeholder="nama@email.com" placeholderTextColor={theme.muted} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" autoComplete="email" returnKeyType="next" />
+          {isRegister && (
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: theme.text }]}>Email (boleh dummy)</Text>
+              <View style={[styles.inputWrap, { borderColor: theme.border, backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc' }]}>
+                <Ionicons name="mail-outline" size={18} color={theme.muted} />
+                <TextInput style={[inputStyle, styles.inputInset]} value={email} onChangeText={setEmail} placeholder="Email atau ID pilihanmu" placeholderTextColor={theme.muted} autoCapitalize="none" autoCorrect={false} keyboardType="default" maxLength={120} returnKeyType="next" />
+              </View>
             </View>
-          </View>
+          )}
+
+          {isRegister && (
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: theme.text }]}>Nomor telepon</Text>
+              <View style={[styles.inputWrap, { borderColor: theme.border, backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc' }]}>
+                <Ionicons name="call-outline" size={18} color={theme.muted} />
+                <TextInput style={[inputStyle, styles.inputInset]} value={phone} onChangeText={setPhone} placeholder="Nomor atau ID dummy" placeholderTextColor={theme.muted} keyboardType="default" maxLength={120} returnKeyType="next" />
+              </View>
+            </View>
+          )}
+
+          {!isRegister && (
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.label, { color: theme.text }]}>Email atau nomor telepon</Text>
+              <View style={[styles.inputWrap, { borderColor: theme.border, backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc' }]}>
+                <Ionicons name="person-outline" size={18} color={theme.muted} />
+                <TextInput style={[inputStyle, styles.inputInset]} value={loginIdentifier} onChangeText={setLoginIdentifier} placeholder="Email atau nomor saat daftar" placeholderTextColor={theme.muted} autoCapitalize="none" autoCorrect={false} keyboardType="default" returnKeyType="next" />
+              </View>
+            </View>
+          )}
 
           <View style={styles.fieldGroup}>
             <Text style={[styles.label, { color: theme.text }]}>Password</Text>

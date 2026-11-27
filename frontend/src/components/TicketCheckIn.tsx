@@ -2,6 +2,22 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { api, isUnauthorized, type TicketCheck as TicketCheckResult } from "@/lib/api";
 
+function getTicketCodeFromQr(rawValue: string): string | null {
+  const value = rawValue.trim();
+  if (/^[A-Z0-9]{12}$/i.test(value)) return value.toUpperCase();
+
+  try {
+    const url = new URL(value);
+    const queryCode = url.searchParams.get("ticket") || url.searchParams.get("code");
+    if (queryCode && /^[A-Z0-9]{12}$/i.test(queryCode.trim())) return queryCode.trim().toUpperCase();
+  } catch {
+    // QR may contain a plain ticket code rather than a URL.
+  }
+
+  const embeddedCode = value.match(/(?:^|[^A-Z0-9])([A-Z0-9]{12})(?:$|[^A-Z0-9])/i)?.[1];
+  return embeddedCode?.toUpperCase() || null;
+}
+
 export default function TicketCheckIn({ token, onExpired }: { token: string; onExpired: () => void }) {
   const [code, setCode] = useState("");
   const [result, setResult] = useState<TicketCheckResult | null>(null);
@@ -73,17 +89,41 @@ export default function TicketCheckIn({ token, onExpired }: { token: string; onE
         const { BrowserQRCodeReader } = await import("@zxing/browser");
         if (cancelled) return;
         const reader = new BrowserQRCodeReader();
-        scannerControls = await reader.decodeFromConstraints(
-          { audio: false, video: { facingMode: { ideal: "environment" } } },
-          video,
-          (result) => {
-            if (!result || cancelled || hasScanned) return;
-            hasScanned = true;
-            setCameraActive(false);
-            setError("");
-            void lookupTicket(result.getText());
+        const onDecode = (result: { getText: () => string } | undefined) => {
+          if (!result || cancelled || hasScanned) return;
+          hasScanned = true;
+          setCameraActive(false);
+          setError("");
+          const ticketCode = getTicketCodeFromQr(result.getText());
+          if (!ticketCode) {
+            setError("QR terbaca, tetapi tidak berisi kode tiket Tixify 12 karakter.");
+            return;
           }
-        );
+          void lookupTicket(ticketCode);
+        };
+
+        const cameraOptions: MediaStreamConstraints[] = [
+          {
+            audio: false,
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          },
+          { audio: false, video: true },
+        ];
+        let cameraError: unknown;
+        for (const constraints of cameraOptions) {
+          try {
+            scannerControls = await reader.decodeFromConstraints(constraints, video, onDecode);
+            break;
+          } catch (err) {
+            cameraError = err;
+            if (cancelled) return;
+          }
+        }
+        if (!scannerControls) throw cameraError || new Error("Kamera tidak dapat dibuka");
       } catch (err) {
         if (!cancelled) {
           const message = err instanceof Error && err.name === "NotAllowedError"

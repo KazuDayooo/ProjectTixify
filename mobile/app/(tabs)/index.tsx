@@ -138,6 +138,21 @@ export default function ExploreScreen() {
     }
   };
 
+  const handleMockPayment = async () => {
+    if (!successOrder) return;
+    setSubmitting(true);
+    try {
+      const result = await mobileApi.payOrder(successOrder.code);
+      setSuccessOrder(result.order);
+      fetchEvents();
+      Alert.alert('Pembayaran Berhasil', 'Pembayaran simulasi Midtrans berhasil. E-tiket sudah diterbitkan.');
+    } catch (err) {
+      Alert.alert('Pembayaran Gagal', (err as Error).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const renderEventItem = ({ item }: { item: EventItem }) => {
     const isSoldOut = item.stock < 1;
     return (
@@ -290,11 +305,15 @@ export default function ExploreScreen() {
                 /* SUCCESS STATE */
                 <View style={styles.successWrapper}>
                   <View style={styles.successIconWrap}>
-                    <Ionicons name="checkmark-circle" size={60} color="#10b981" />
+                    <Ionicons name={successOrder.status === 'paid' ? 'checkmark-circle' : 'time'} size={60} color={successOrder.status === 'paid' ? '#10b981' : '#f59e0b'} />
                   </View>
-                  <Text style={[styles.successTitle, { color: theme.text }]}>Pesanan Berhasil Dibuat!</Text>
+                  <Text style={[styles.successTitle, { color: theme.text }]}>
+                    {successOrder.status === 'paid' ? 'Pembayaran Berhasil!' : 'Pesanan Menunggu Pembayaran'}
+                  </Text>
                   <Text style={[styles.successDesc, { color: theme.muted }]}>
-                    Simpan kode booking unik Anda untuk verifikasi e-tiket atau pembayaran:
+                    {successOrder.status === 'paid'
+                      ? 'Tiket sudah diterbitkan dan tersimpan di akun Anda.'
+                      : 'Pesanan belum menjadi tiket. Selesaikan simulasi pembayaran untuk menerbitkan tiket.'}
                   </Text>
                   <View style={styles.codeBox}>
                     <Text style={styles.codeText}>{successOrder.code}</Text>
@@ -306,14 +325,23 @@ export default function ExploreScreen() {
                       Total: {rp(successOrder.total)}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={[styles.primaryActionBtn, { backgroundColor: theme.primary }]}
-                    onPress={() => {
-                      closeBuyModal();
-                      router.push('/(tabs)/tickets');
-                    }}>
-                    <Text style={styles.primaryActionBtnText}>Buka di Tab "Tiketku" →</Text>
-                  </TouchableOpacity>
+                  {successOrder.status === 'pending' ? (
+                    <TouchableOpacity
+                      style={[styles.primaryActionBtn, { backgroundColor: '#0f9f6e', opacity: submitting ? 0.7 : 1 }]}
+                      onPress={handleMockPayment}
+                      disabled={submitting}>
+                      {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryActionBtnText}>Bayar dengan simulasi Midtrans</Text>}
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.primaryActionBtn, { backgroundColor: theme.primary }]}
+                      onPress={() => {
+                        closeBuyModal();
+                        router.push('/(tabs)/tickets');
+                      }}>
+                      <Text style={styles.primaryActionBtnText}>Buka di Tab "Tiketku" →</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ) : (
                 /* FORM INPUT */
@@ -390,7 +418,7 @@ export default function ExploreScreen() {
                     {submitting ? (
                       <ActivityIndicator color="#fff" />
                     ) : (
-                      <Text style={styles.primaryActionBtnText}>Konfirmasi &amp; Dapatkan E-Tiket</Text>
+                      <Text style={styles.primaryActionBtnText}>Buat Pesanan &amp; Lanjut Bayar</Text>
                     )}
                   </TouchableOpacity>
                 </>

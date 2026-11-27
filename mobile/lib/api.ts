@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import type { Status } from './format';
+import { getAuth } from './auth';
 
 const STORAGE_API_KEY = '@tixify_custom_api_url';
 
@@ -120,10 +121,17 @@ export type OrderLookup = {
   tickets?: { code: string; status: 'valid' | 'used'; used_at: string | null }[];
 };
 
+export type OwnedOrder = OrderLookup & {
+  event_id: string;
+  events?: { name: string; venue?: string | null; event_date?: string } | null;
+};
+
 export type AuthUser = {
   id: string;
-  email: string;
+  email?: string | null;
   name: string;
+  nickname?: string;
+  phone?: string | null;
 };
 
 export type AuthSession = {
@@ -151,11 +159,13 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const timeoutId = setTimeout(() => controller.abort(), 12000);
 
   try {
+    const auth = await getAuth();
     const res = await fetch(url, {
       ...init,
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
+        ...(auth?.session.access_token ? { Authorization: `Bearer ${auth.session.access_token}` } : {}),
         ...(init.headers || {}),
       },
     });
@@ -181,9 +191,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const mobileApi = {
   health: () => request<{ ok: boolean }>('/health'),
   events: () => request<EventItem[]>('/events'),
-  register: (payload: { name: string; email: string; password: string }) =>
+  register: (payload: { nickname: string; phone: string; email: string; password: string }) =>
     request<AuthResponse>('/auth/register', { method: 'POST', body: JSON.stringify(payload) }),
-  login: (payload: { email: string; password: string }) =>
+  login: (payload: { identifier: string; password: string }) =>
     request<AuthResponse>('/auth/mobile/login', { method: 'POST', body: JSON.stringify(payload) }),
   
   createOrder: (payload: { event_id: string; buyer_name: string; buyer_email: string; qty: number }) =>
@@ -191,6 +201,8 @@ export const mobileApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  myOrders: () => request<OwnedOrder[]>('/orders/mine'),
 
   lookup: (code: string) =>
     request<OrderLookup>(`/orders/lookup/${encodeURIComponent(code.trim().toUpperCase())}`),

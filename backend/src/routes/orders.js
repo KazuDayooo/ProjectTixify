@@ -2,12 +2,12 @@ const router = require("express").Router();
 const { admin } = require("../lib/supabase");
 const { HttpError, must } = require("../lib/http");
 const requireAdmin = require("../middleware/auth");
-const { requireStaff } = require("../middleware/auth");
+const { requireRole, requireStaff } = require("../middleware/auth");
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ----- Publik -----
-router.post("/", async (req, res) => {
+router.post("/", requireRole("user", "admin", "staff"), async (req, res) => {
   const { event_id } = req.body;
   const buyer_name = String(req.body.buyer_name || "").trim();
   const buyer_email = String(req.body.buyer_email || "").trim();
@@ -18,19 +18,41 @@ router.post("/", async (req, res) => {
   if (!EMAIL_RE.test(buyer_email)) throw new HttpError(400, "Format email tidak valid");
   if (!Number.isInteger(qty) || qty < 1 || qty > 10) throw new HttpError(400, "Jumlah tiket harus 1-10");
 
-  const data = must(await admin.rpc("create_order", { p_event: event_id, p_name: buyer_name, p_email: buyer_email, p_qty: qty }));
+  const data = must(await admin.rpc("create_order", {
+    p_event: event_id,
+    p_name: buyer_name,
+    p_email: buyer_email,
+    p_qty: qty,
+    p_user: req.user.id,
+  }));
   res.status(201).json(data);
 });
 
-router.get("/lookup/:code", async (req, res) => {
+router.get("/mine", requireRole("user", "admin", "staff"), async (req, res) => {
+  const { data, error } = await admin
+    .from("orders")
+    .select("id, code, event_id, buyer_name, buyer_email, qty, total, status, created_at, events(name, venue, event_date), tickets(code, status, used_at)")
+    .eq("user_id", req.user.id)
+    .order("created_at", { ascending: false });
+  if (error) throw new HttpError(500, error.message);
+  res.json((data || []).map((order) => ({
+    ...order,
+    event_name: order.events?.name || "Event",
+    venue: order.events?.venue || "",
+    event_date: order.events?.event_date,
+  })));
+});
+
+router.get("/lookup/:code", requireRole("user", "admin", "staff"), async (req, res) => {
   const code = String(req.params.code || "").trim().toUpperCase();
   const { data, error } = await admin
     .from("orders")
-    .select("id, code, buyer_name, buyer_email, qty, total, status, created_at, events(name, venue, event_date)")
+    .select("id, code, user_id, buyer_name, buyer_email, qty, total, status, created_at, events(name, venue, event_date)")
     .eq("code", code)
     .maybeSingle();
 
   if (error || !data) throw new HttpError(404, "Kode pesanan tidak ditemukan");
+  if (data.user_id !== req.user.id) throw new HttpError(404, "Kode pesanan tidak ditemukan");
   const tickets = must(await admin
     .from("tickets")
     .select("code, status, used_at")
@@ -52,31 +74,22 @@ router.get("/lookup/:code", async (req, res) => {
   });
 });
 
-// Pembayaran otomatis: saat dibayar langsung berstatus 'paid' (otomatis disetujui)
-router.post("/:code/pay", async (req, res) => {
+// Pembayaran dummy bergaya Midtrans untuk pengembangan; tiket dibuat hanya setelah konfirmasi ini.
+router.post("/:code/pay", requireRole("user", "admin", "staff"), async (req, res) => {
   const code = String(req.params.code || "").trim().toUpperCase();
+  const updated = must(await admin.rpc("complete_mock_payment", {
+    p_code: code,
+    p_user: req.user.id,
+  }));
   const { data: order, error } = await admin
     .from("orders")
-    .select("*, events(name, venue, event_date)")
-    .eq("code", code)
-    .maybeSingle();
-
-  if (error || !order) throw new HttpError(404, "Kode pesanan tidak ditemukan");
-  if (order.status === "paid") {
-    return res.json({
-      message: "Pesanan ini sudah berstatus lunas & disetujui sebelumnya.",
-      order,
-    });
-  }
-  if (order.status === "cancelled") {
-    throw new HttpError(400, "Pesanan telah dibatalkan dan tidak dapat dibayar.");
-  }
-
-  // Otomatis ubah status ke 'paid'
-  const updated = must(await admin.rpc("set_order_status", { p_id: order.id, p_status: "paid" }));
+    .select("*, events(name, venue, event_date), tickets(code, status, used_at)")
+    .eq("id", updated.id)
+    .single();
+  if (error || !order) throw new HttpError(500, error?.message || "Pesanan tidak dapat dimuat");
   res.json({
-    message: "Pembayaran berhasil! Transaksi otomatis disetujui.",
-    order: { ...order, ...updated, events: order.events },
+    message: "Pembayaran simulasi Midtrans berhasil.",
+    order,
   });
 });
 

@@ -27,6 +27,7 @@ export default function AccountScreen() {
   const logout = async () => {
     await clearAuth();
     setAuth(null);
+    router.replace('/login');
   };
 
   if (loading) {
@@ -39,16 +40,24 @@ export default function AccountScreen() {
         <View style={[styles.avatar, { backgroundColor: theme.primaryLight }]}>
           <Ionicons name={auth ? 'person' : 'person-outline'} size={34} color={theme.primary} />
         </View>
-        <Text style={[styles.title, { color: theme.text }]}>{auth ? `Halo, ${auth.user.name}` : 'Akun Tixify'}</Text>
+        <Text style={[styles.title, { color: theme.text }]}>{auth ? `Halo, ${auth.user.nickname || auth.user.name}` : 'Akun Tixify'}</Text>
         <Text style={[styles.description, { color: theme.muted }]}>
-          {auth ? 'Akunmu sudah terhubung. Gunakan email ini saat memesan tiket.' : 'Masuk atau buat akun untuk mulai menggunakan Tixify.'}
+          {auth ? 'Akunmu sudah terhubung. Gunakan email atau nomor telepon untuk masuk.' : 'Masuk atau buat akun untuk mulai menggunakan Tixify.'}
         </Text>
         {auth ? (
           <>
-            <View style={[styles.emailRow, { backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc', borderColor: theme.border }]}>
-              <Ionicons name="mail-outline" size={18} color={theme.muted} />
-              <Text style={[styles.email, { color: theme.text }]}>{auth.user.email}</Text>
-            </View>
+            {auth.user.email ? (
+              <View style={[styles.emailRow, { backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc', borderColor: theme.border }]}>
+                <Ionicons name="mail-outline" size={18} color={theme.muted} />
+                <Text style={[styles.email, { color: theme.text }]}>{auth.user.email}</Text>
+              </View>
+            ) : null}
+            {auth.user.phone ? (
+              <View style={[styles.emailRow, { backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc', borderColor: theme.border, marginTop: auth.user.email ? 8 : 0 }]}>
+                <Ionicons name="call-outline" size={18} color={theme.muted} />
+                <Text style={[styles.email, { color: theme.text }]}>{auth.user.phone}</Text>
+              </View>
+            ) : null}
             <TouchableOpacity style={[styles.primaryButton, { backgroundColor: theme.primary }]} onPress={() => router.push('/(tabs)')}>
               <Text style={styles.primaryText}>Jelajahi event</Text>
               <Ionicons name="arrow-forward" size={18} color="#fff" />

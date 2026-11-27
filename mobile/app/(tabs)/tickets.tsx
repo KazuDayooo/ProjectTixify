@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { mobileApi, type OrderLookup } from '@/lib/api';
+import { useFocusEffect } from 'expo-router';
+import { mobileApi, type OrderLookup, type OwnedOrder } from '@/lib/api';
 import { rp, tgl, STATUS_LABEL } from '@/lib/format';
 import Colors from '@/constants/Colors';
 import { useColorScheme } from '@/components/useColorScheme';
@@ -28,6 +29,9 @@ export default function TicketsScreen() {
   const [loading, setLoading] = useState(false);
   const [paying, setPaying] = useState(false);
   const [ticket, setTicket] = useState<OrderLookup | null>(null);
+  const [myOrders, setMyOrders] = useState<OwnedOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
   const [recentCodes, setRecentCodes] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,9 +46,24 @@ export default function TicketsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    loadRecentCodes();
-  }, [loadRecentCodes]);
+  const loadMyOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    setOrdersError(null);
+    try {
+      const orders = await mobileApi.myOrders();
+      setMyOrders(orders);
+      setTicket((current) => current ? orders.find((order) => order.code === current.code) || current : current);
+    } catch (err) {
+      setOrdersError((err as Error).message);
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    void loadRecentCodes();
+    void loadMyOrders();
+  }, [loadMyOrders, loadRecentCodes]));
 
   const saveRecentCode = async (code: string) => {
     try {
@@ -89,12 +108,11 @@ export default function TicketsScreen() {
     if (!ticket) return;
     setPaying(true);
     try {
-      const res = await mobileApi.payOrder(ticket.code);
-      setTicket({
-        ...ticket,
-        status: res.order.status,
-      });
-      Alert.alert('Sukses!', 'Pembayaran berhasil dikonfirmasi. Tiket Anda kini LUNAS dan siap digunakan.');
+      await mobileApi.payOrder(ticket.code);
+      const refreshedTicket = await mobileApi.lookup(ticket.code);
+      setTicket(refreshedTicket);
+      await loadMyOrders();
+      Alert.alert('Sukses!', 'Pembayaran simulasi Midtrans berhasil. Tiket Anda sudah diterbitkan.');
     } catch (err) {
       Alert.alert('Gagal Membayar', (err as Error).message);
     } finally {
@@ -108,7 +126,7 @@ export default function TicketsScreen() {
       <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
         <View style={styles.sectionHeaderRow}>
           <Ionicons name="search-circle" size={24} color={theme.primary} />
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Cek E-Tiket &amp; Status Pesanan</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Tiketku &amp; Status Pesanan</Text>
         </View>
         <Text style={[styles.sectionSubtitle, { color: theme.muted }]}>
           Masukkan 8-karakter kode pesanan Anda untuk melihat e-tiket dan status pembayaran.
@@ -178,6 +196,35 @@ export default function TicketsScreen() {
             </ScrollView>
           </View>
         )}
+      </View>
+
+      <View style={[styles.sectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+        <View style={styles.sectionHeaderRow}>
+          <Ionicons name="ticket" size={22} color={theme.primary} />
+          <Text style={[styles.sectionTitle, { color: theme.text }]}>Pesanan di Akun Saya</Text>
+        </View>
+        {ordersLoading && myOrders.length === 0 ? (
+          <ActivityIndicator color={theme.primary} />
+        ) : ordersError ? (
+          <Text style={[styles.sectionSubtitle, { color: '#ef4444' }]}>{ordersError}</Text>
+        ) : myOrders.length === 0 ? (
+          <Text style={[styles.sectionSubtitle, { color: theme.muted, marginBottom: 0 }]}>Belum ada pesanan. Tiket yang dibeli akan muncul di sini.</Text>
+        ) : myOrders.map((order) => (
+          <TouchableOpacity
+            key={order.code}
+            style={[styles.myOrderRow, { borderColor: theme.border, backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc' }]}
+            onPress={() => handleLookup(order.code)}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.orderEventName, { color: theme.text }]} numberOfLines={1}>{order.event_name}</Text>
+              <Text style={[styles.orderMeta, { color: theme.muted }]}>#{order.code} · {order.qty} tiket · {rp(order.total)}</Text>
+            </View>
+            <View style={[styles.orderStatusBadge, { backgroundColor: order.status === 'paid' ? 'rgba(16, 185, 129, 0.14)' : order.status === 'pending' ? 'rgba(245, 158, 11, 0.14)' : 'rgba(239, 68, 68, 0.14)' }]}>
+              <Text style={{ color: order.status === 'paid' ? '#10b981' : order.status === 'pending' ? '#f59e0b' : '#ef4444', fontWeight: '800', fontSize: 10 }}>
+                {order.status === 'paid' ? 'LUNAS' : order.status === 'pending' ? 'MENUNGGU BAYAR' : 'DIBATALKAN'}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ))}
       </View>
 
       {/* ERROR MESSAGE */}
@@ -284,7 +331,15 @@ export default function TicketsScreen() {
               {ticket.status === 'paid' && ticket.tickets?.map((entry, index) => (
                 <View key={entry.code} style={[styles.qrContainer, { backgroundColor: colorScheme === 'dark' ? '#0f172a' : '#f8fafc', borderColor: theme.border }]}> 
                   <Text style={[styles.detailVal, { color: theme.text, marginBottom: 12 }]}>Tiket {index + 1}</Text>
-                  {entry.status === 'valid' ? <QRCode value={entry.code} size={132} /> : (
+                  {entry.status === 'valid' ? (
+                    <QRCode
+                      value={entry.code.trim().toUpperCase()}
+                      size={260}
+                      quietZone={24}
+                      backgroundColor="#ffffff"
+                      color="#000000"
+                    />
+                  ) : (
                     <View style={styles.usedTicketMark}><Ionicons name="checkmark-circle" size={48} color="#10b981" /><Text style={styles.usedTicketText}>SUDAH DIGUNAKAN</Text></View>
                   )}
                   <Text style={[styles.qrHelperText, { color: theme.muted }]}>
@@ -308,7 +363,7 @@ export default function TicketsScreen() {
               {ticket.status === 'pending' && (
                 <View style={styles.paymentPromptBox}>
                   <Text style={styles.paymentPromptText}>
-                    Pesanan Anda masih pending. Klik tombol di bawah untuk melunasi &amp; menyetujui tiket secara instan.
+                    Pesanan masih pending. Gunakan simulasi pembayaran Midtrans sementara untuk menerbitkan tiket.
                   </Text>
                   <TouchableOpacity
                     style={[styles.payNowBtn, { backgroundColor: '#10b981' }]}
@@ -319,7 +374,7 @@ export default function TicketsScreen() {
                     ) : (
                       <>
                         <Ionicons name="flash" size={16} color="#fff" style={{ marginRight: 6 }} />
-                        <Text style={styles.payNowBtnText}>⚡ Bayar Sekarang (Simulasi Instan)</Text>
+                        <Text style={styles.payNowBtnText}>⚡ Bayar Sekarang (Simulasi Midtrans)</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -369,6 +424,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
     marginBottom: 14,
+  },
+  myOrderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 12,
+    marginTop: 9,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  orderEventName: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  orderMeta: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  orderStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 7,
   },
   searchRow: {
     flexDirection: 'row',

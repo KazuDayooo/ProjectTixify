@@ -3,7 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import type { AuthSession, AuthUser } from './api';
 
-const AUTH_SESSION_KEY = '@tixify_auth_session';
+const AUTH_SESSION_KEY = 'tixifyauthsession';
 
 export type StoredAuth = {
   session: AuthSession;
@@ -31,7 +31,7 @@ export async function getAuth(): Promise<StoredAuth | null> {
     const value = await readStoredValue(AUTH_SESSION_KEY);
     if (!value) return null;
     const parsed = JSON.parse(value) as StoredAuth;
-    if (!parsed.session?.access_token || !parsed.user?.email) return null;
+    if (!parsed.session?.access_token || !parsed.user?.id || !parsed.user?.name) return null;
     return parsed;
   } catch {
     return null;
